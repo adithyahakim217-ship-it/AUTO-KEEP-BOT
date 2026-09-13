@@ -42,8 +42,8 @@ import os
 import re
 
 from telegram import BotCommand, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from telethon import TelegramClient
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 
@@ -303,13 +303,20 @@ async def cmd_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Sudah logout & sesi dihapus. Pakai /login buat login akun lain.")
 
 
-async def on_relay_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dengerin pesan di grup relay dari bot 1. Setiap baris yang match pola
-    '@user 🟢 Available' langsung dipicu buat diklaim, tanpa nunggu apa-apa."""
-    text = update.message.text or ""
+async def on_relay_message(event, app: Application):
+    """Dengerin pesan di grup relay LEWAT USERBOT (Telethon MTProto), BUKAN
+    lewat Bot API -- soalnya Telegram sengaja TIDAK ngirim update ke sebuah
+    bot kalau pesannya berasal dari bot lain (biar gak infinite loop
+    bot-ke-bot), walaupun privacy mode sudah dimatiin/jadi admin. Akun
+    pribadi (userbot) gak kena batasan ini, jadi dia yang dipakai buat
+    "dengerin" pesan dari bot 1 di grup relay.
+
+    Setiap baris yang match pola '@user 🟢 Available' langsung dipicu buat
+    diklaim, tanpa nunggu apa-apa."""
+    text = event.raw_text or ""
     for match in AVAILABLE_LINE_RE.finditer(text):
         username = match.group(1)
-        asyncio.create_task(try_claim_and_notify(context.application, username, "relay bot 1"))
+        asyncio.create_task(try_claim_and_notify(app, username, "relay bot 1"))
 
 
 async def priority_loop(app: Application):
@@ -355,6 +362,13 @@ async def _post_init(app: Application):
     else:
         logger.info("Userbot belum login. Pakai /login di chat buat login.")
 
+    # Dengerin grup relay LEWAT USERBOT (bukan Bot API) -- lihat penjelasan
+    # di on_relay_message soal kenapa harus lewat sini.
+    user_client.add_event_handler(
+        lambda event: on_relay_message(event, app),
+        events.NewMessage(chats=RELAY_CHAT_ID),
+    )
+
     await app.bot.set_my_commands([
         BotCommand("start", "Mulai / lihat daftar command"),
         BotCommand("login", "Login akun pribadi (buat klaim username)"),
@@ -383,13 +397,6 @@ def main():
     app.add_handler(CommandHandler("autokeeplist", cmd_autokeeplist))
     app.add_handler(CommandHandler("hapus", cmd_hapus))
     app.add_handler(CommandHandler("riwayat", cmd_riwayat))
-
-    # Dengerin semua pesan teks (bukan command) dari grup relay -- ini yang
-    # nangkep notif "@user 🟢 Available" yang dikirim bot 1.
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.Chat(chat_id=RELAY_CHAT_ID),
-        on_relay_message,
-    ))
 
     logger.info("Autokeep bot starting...")
     app.run_polling()
