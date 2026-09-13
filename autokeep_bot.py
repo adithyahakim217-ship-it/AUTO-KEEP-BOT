@@ -116,6 +116,14 @@ async def try_claim_and_notify(app: Application, username: str, source: str):
 
     if result["success"]:
         astore.mark_claimed(username, result["channel_id"])
+
+        template = astore.get_message_template()
+        if template:
+            try:
+                await user_client.send_message(result["channel"], template)
+            except Exception as e:
+                logger.exception(f"Gagal kirim pesan template ke @{username}: {e}")
+
         await app.bot.send_message(
             OWNER_CHAT_ID,
             f"✅ [{source}] @{username} berhasil di-keep! Channel dibikin -> https://t.me/{username}",
@@ -144,7 +152,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/autokeep user1 user2 ... - tambah ke daftar prioritas (dicek cepat, independen)\n"
         "/autokeeplist - lihat daftar prioritas\n"
         "/hapus username - hapus dari daftar prioritas\n"
-        "/riwayat - lihat username yang sudah diproses (sukses/gagal)"
+        "/riwayat - lihat username yang sudah diproses (sukses/gagal)\n\n"
+        "/pesan <teks> - set pesan otomatis yang dikirim ke channel abis di-keep\n"
+        "/pesanhapus - matiin pesan otomatis"
     )
 
 
@@ -303,6 +313,31 @@ async def cmd_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Sudah logout & sesi dihapus. Pakai /login buat login akun lain.")
 
 
+@_owner_only
+async def cmd_pesan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        current = astore.get_message_template()
+        if current:
+            await update.message.reply_text(f"Template pesan sekarang:\n\n{current}")
+        else:
+            await update.message.reply_text(
+                "Belum ada template pesan. Contoh set:\n"
+                "/pesan Halo, channel ini otomatis di-keep oleh bot.\n\n"
+                "Pakai /pesanhapus buat matiin fitur ini."
+            )
+        return
+
+    text = update.message.text.split(maxsplit=1)[1]
+    astore.save_message_template(text)
+    await update.message.reply_text("Template pesan disimpan. Bakal otomatis dikirim ke channel abis berhasil di-keep.")
+
+
+@_owner_only
+async def cmd_pesanhapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    astore.save_message_template("")
+    await update.message.reply_text("Template pesan dihapus. Gak ada pesan otomatis lagi yang dikirim ke channel baru.")
+
+
 async def on_relay_message(event, app: Application):
     """Dengerin pesan di grup relay LEWAT USERBOT (Telethon MTProto), BUKAN
     lewat Bot API -- soalnya Telegram sengaja TIDAK ngirim update ke sebuah
@@ -379,6 +414,8 @@ async def _post_init(app: Application):
         BotCommand("autokeeplist", "Lihat daftar prioritas"),
         BotCommand("hapus", "Hapus username dari daftar prioritas"),
         BotCommand("riwayat", "Lihat riwayat klaim"),
+        BotCommand("pesan", "Set pesan otomatis buat channel baru"),
+        BotCommand("pesanhapus", "Matiin pesan otomatis"),
     ])
 
     asyncio.create_task(priority_loop(app))
@@ -397,6 +434,8 @@ def main():
     app.add_handler(CommandHandler("autokeeplist", cmd_autokeeplist))
     app.add_handler(CommandHandler("hapus", cmd_hapus))
     app.add_handler(CommandHandler("riwayat", cmd_riwayat))
+    app.add_handler(CommandHandler("pesan", cmd_pesan))
+    app.add_handler(CommandHandler("pesanhapus", cmd_pesanhapus))
 
     logger.info("Autokeep bot starting...")
     app.run_polling()
