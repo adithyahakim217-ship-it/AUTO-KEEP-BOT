@@ -31,12 +31,12 @@ from telethon.tl.functions.channels import CreateChannelRequest, UpdateUsernameR
 
 async def claim_username(user_client: TelegramClient, username: str) -> dict:
     """
-    Coba klaim satu username: bikin channel baru berjudul "Reserved @username",
-    lalu assign username itu ke channel tersebut.
+    Coba klaim satu username: bikin channel baru berjudul persis nama
+    username-nya (tanpa bio), lalu assign username itu ke channel tersebut.
 
     Return:
-        {"success": True, "channel_id": int, "error": None}                 -- berhasil
-        {"success": False, "channel_id": int|None, "error": "kode_error"}   -- gagal
+        {"success": True, "channel_id": int, "channel": Channel, "error": None}   -- berhasil
+        {"success": False, "channel_id": int|None, "channel": Channel|None, "error": "kode_error"} -- gagal
 
     Kode error yang mungkin muncul:
         "channel_limit_reached"     -- akun sudah kena limit jumlah channel/grup
@@ -49,29 +49,29 @@ async def claim_username(user_client: TelegramClient, username: str) -> dict:
     """
     try:
         result = await user_client(CreateChannelRequest(
-            title=f"Reserved @{username}",
-            about="Auto-reserved oleh autokeep bot.",
+            title=username,
+            about="",
             megagroup=False,  # channel biasa (broadcast), bukan supergroup
         ))
         channel = result.chats[0]
     except ChannelsTooMuchError:
-        return {"success": False, "channel_id": None, "error": "channel_limit_reached"}
+        return {"success": False, "channel_id": None, "channel": None, "error": "channel_limit_reached"}
     except FloodWaitError as e:
-        return {"success": False, "channel_id": None, "error": f"flood_wait:{e.seconds}"}
+        return {"success": False, "channel_id": None, "channel": None, "error": f"flood_wait:{e.seconds}"}
     except Exception as e:
-        return {"success": False, "channel_id": None, "error": f"create_failed:{type(e).__name__}: {e}"}
+        return {"success": False, "channel_id": None, "channel": None, "error": f"create_failed:{type(e).__name__}: {e}"}
 
     try:
         await user_client(UpdateUsernameRequest(channel=channel, username=username))
     except UsernameOccupiedError:
         # Kalah cepat -- orang/bot lain sudah ambil duluan. Channel kosong
         # (tanpa username) ini tetap ada, biar bisa dihapus manual belakangan.
-        return {"success": False, "channel_id": channel.id, "error": "username_occupied"}
+        return {"success": False, "channel_id": channel.id, "channel": channel, "error": "username_occupied"}
     except UsernameInvalidError:
-        return {"success": False, "channel_id": channel.id, "error": "username_invalid"}
+        return {"success": False, "channel_id": channel.id, "channel": channel, "error": "username_invalid"}
     except FloodWaitError as e:
-        return {"success": False, "channel_id": channel.id, "error": f"flood_wait:{e.seconds}"}
+        return {"success": False, "channel_id": channel.id, "channel": channel, "error": f"flood_wait:{e.seconds}"}
     except Exception as e:
-        return {"success": False, "channel_id": channel.id, "error": f"assign_failed:{type(e).__name__}: {e}"}
+        return {"success": False, "channel_id": channel.id, "channel": channel, "error": f"assign_failed:{type(e).__name__}: {e}"}
 
-    return {"success": True, "channel_id": channel.id, "error": None}
+    return {"success": True, "channel_id": channel.id, "channel": channel, "error": None}
