@@ -112,3 +112,17 @@ def clear_session() -> None:
         data = _load()
         data.pop("session_string", None)
         _save(data)
+
+
+def save_message_template(text: str) -> None:
+    """Simpan template pesan yang bakal otomatis dikirim ke channel abis
+    berhasil di-keep. Kirim string kosong buat matiin fitur ini lagi."""
+    with _lock:
+        data = _load()
+        data["message_template"] = text
+        _save(data)
+
+
+def get_message_template() -> str:
+    with _lock:
+        return _load().get("message_template", "")
